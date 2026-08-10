@@ -22,6 +22,7 @@ export function usePhysics() {
     framesLeft.current--
 
     if (updates && framesLeft.current > 0) {
+      // eslint-disable-next-line react-hooks/immutability -- self-referencing rAF loop; `loop` is stable via useCallback([])
       rafId.current = requestAnimationFrame(loop)
     } else {
       running.current = false

@@ -2,8 +2,14 @@ import { useSyncExternalStore } from 'react'
 
 export const CONFIG_KEY = 'openrouter-config'
 
+/** The default OpenRouter chat-completions endpoint — single source of truth
+ * shared by ai.ts (request target) and Settings.tsx (display fallback). */
+export const OPENROUTER_URL =
+  'https://openrouter.ai/api/v1/chat/completions'
+
 export type OpenRouterConfig = {
   apiKey: string
+  baseUrl?: string
   model?: string
   branchCount?: number
   systemPrompt?: string
@@ -26,9 +32,30 @@ export function readConfig(): OpenRouterConfig {
 const listeners = new Set<() => void>()
 
 export function writeConfig(next: Partial<OpenRouterConfig>) {
-  const merged = { ...readConfig(), ...next }
+  // Normalize baseUrl before merging: keep the trimmed value only when it
+  // passes isValidBaseUrl(); an invalid/empty candidate becomes `undefined`
+  // (removed from the merged object, never stored as '') so readConfig()
+  // never has to re-validate on read.
+  const normalized: Partial<OpenRouterConfig> = { ...next }
+  if ('baseUrl' in normalized) {
+    const candidate =
+      typeof normalized.baseUrl === 'string' ? normalized.baseUrl.trim() : ''
+    normalized.baseUrl =
+      candidate && isValidBaseUrl(candidate) ? candidate : undefined
+  }
+  const merged = { ...readConfig(), ...normalized }
   localStorage.setItem(CONFIG_KEY, JSON.stringify(merged))
   listeners.forEach((cb) => cb())
+}
+
+/** True only when `candidate` parses via `new URL()` and uses http(s):. */
+export function isValidBaseUrl(candidate: string): boolean {
+  try {
+    const url = new URL(candidate)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 /** Loose shape check for OpenRouter keys — they're `sk-or-...` followed by

@@ -80,7 +80,7 @@ export function SidePanel() {
                     ;(e.target as HTMLTextAreaElement).blur()
                   }
                 }}
-                className="w-full min-h-[110px] max-h-[50vh] py-3 px-3.5 text-ui font-medium bg-surface-soft rounded-control resize-none outline-none text-ink leading-[1.4] overflow-y-auto [field-sizing:content]"
+                className="w-full min-h-[110px] max-h-[50vh] py-3 px-3.5 text-prose font-medium bg-surface-soft rounded-control resize-none outline-none text-ink leading-[1.7] overflow-y-auto [field-sizing:content]"
                 rows={4}
               />
             </div>
@@ -88,13 +88,13 @@ export function SidePanel() {
             {isAI && (
               <div className="flex flex-col">
                 {parent && (
-                  <p className="px-3.5 py-1.25 text-body leading-[1.5] text-ink break-words">
+                  <p className="px-3.5 py-1.25 text-prose leading-[1.7] text-ink break-words">
                     <BranchIcon className="inline-block w-3 h-3 text-[#A5A6A6] mr-1.5 align-[-2px]" />
                     <span className="text-ink/60">Branched from: </span>
                     <span className="font-medium">{parent.text}</span>
                   </p>
                 )}
-                <p className="px-3.5 py-1.25 text-body leading-[1.5] text-ink break-words">
+                <p className="px-3.5 py-1.25 text-prose leading-[1.7] text-ink break-words">
                   <PromptIcon className="inline-block w-3 h-3 text-[#A5A6A6] mr-1.5 align-[-2px]" />
                   <span className="text-ink/60">Prompt: </span>
                   <span className="font-medium">

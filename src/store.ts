@@ -54,6 +54,22 @@ export type MergeAnim = {
   placeholderId: string
 }
 
+// Ephemeral UI state — never persisted (kept out of persist's partialize).
+export type ContextMenuState =
+  | {
+      kind: 'node'
+      nodeId: string
+      x: number // screen-space, for menu placement
+      y: number
+    }
+  | {
+      kind: 'canvas'
+      canvasPos: Position // canvas-space, for "Add node here"
+      x: number // screen-space, for menu placement
+      y: number
+    }
+  | null
+
 type HistoryFrame = {
   nodes: Record<string, NodeData>
   connections: [string, string][]
@@ -94,6 +110,7 @@ interface BrainstormStore {
   pendingConnectionSource: string | null
   seedNodeId: string | null
   mergeAnim: MergeAnim | null
+  contextMenu: ContextMenuState
   currentProjectId: string | null
   projectsIndex: ProjectMeta[]
   past: HistoryFrame[]
@@ -137,6 +154,9 @@ interface BrainstormStore {
   closeCompose: () => void
   clearComposeResult: () => void
   setSettingsAIOpen: (open: boolean) => void
+  openNodeContextMenu: (nodeId: string, x: number, y: number) => void
+  openCanvasContextMenu: (canvasPos: Position, x: number, y: number) => void
+  closeContextMenu: () => void
   pan: (dx: number, dy: number) => void
   zoom: (delta: number, center: Position) => void
 }
@@ -277,6 +297,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
   pendingConnectionSource: null,
   seedNodeId: null,
   mergeAnim: null,
+  contextMenu: null,
   currentProjectId: null,
   projectsIndex: [],
   past: [],
@@ -907,6 +928,12 @@ export const useBrainstormStore = create<BrainstormStore>()(
   closeCompose: () => set({ composeOpen: false }),
   clearComposeResult: () => set({ composeResult: null, composeOpen: false }),
   setSettingsAIOpen: (open) => set({ settingsAIOpen: open }),
+
+  openNodeContextMenu: (nodeId, x, y) =>
+    set({ contextMenu: { kind: 'node', nodeId, x, y } }),
+  openCanvasContextMenu: (canvasPos, x, y) =>
+    set({ contextMenu: { kind: 'canvas', canvasPos, x, y } }),
+  closeContextMenu: () => set({ contextMenu: null }),
 
   pan: (dx, dy) => {
     set((s) => ({

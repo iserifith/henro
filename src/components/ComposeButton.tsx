@@ -17,15 +17,15 @@ export function ComposeButton() {
   )
   const hasSelection = useBrainstormStore((s) => s.selectedNodeId !== null)
 
-  const [hiddenByPanel, setHiddenByPanel] = useState(hasSelection)
+  // Delay un-hiding so the panel close animation finishes first; the hide
+  // itself is applied synchronously during render below.
+  const [delayedShow, setDelayedShow] = useState(!hasSelection)
   useEffect(() => {
-    if (hasSelection) {
-      setHiddenByPanel(true)
-      return
-    }
-    const t = setTimeout(() => setHiddenByPanel(false), 140)
+    if (hasSelection) return
+    const t = setTimeout(() => setDelayedShow(true), 140)
     return () => clearTimeout(t)
   }, [hasSelection])
+  const hiddenByPanel = hasSelection || !delayedShow
 
   const [copied, setCopied] = useState<'text' | 'md' | null>(null)
   useEffect(() => {

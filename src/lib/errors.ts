@@ -21,7 +21,7 @@ export function toastMessageForAiError(err: unknown): string {
   if (err instanceof AiError) {
     switch (err.kind) {
       case 'no-key':
-        return 'Add your OpenRouter key in Settings to start.'
+        return 'Add your API key in Settings to start.'
       case 'auth':
         return 'Invalid API key – edit in Settings.'
       case 'rate-limit':

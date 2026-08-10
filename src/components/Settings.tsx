@@ -9,7 +9,7 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   type PresetKey,
 } from '../lib/prompts'
-import { readConfig, writeConfig } from '../lib/config'
+import { readConfig, writeConfig, OPENROUTER_URL, isValidBaseUrl } from '../lib/config'
 import { BranchIcon } from './icons'
 
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4.5'
@@ -17,26 +17,25 @@ const DEFAULT_MODEL = 'anthropic/claude-sonnet-4.5'
 export function Settings() {
   const showAI = useBrainstormStore((s) => s.settingsAIOpen)
   const setShowAI = useBrainstormStore((s) => s.setSettingsAIOpen)
-  const [apiKey, setApiKey] = useState('')
-  const [model, setModel] = useState(DEFAULT_MODEL)
-  const [branchCount, setBranchCount] = useState(DEFAULT_BRANCH_COUNT)
-  const [systemPrompt, setSystemPrompt] = useState<string>(DEFAULT_SYSTEM_PROMPT)
-
-  useEffect(() => {
+  const [apiKey, setApiKey] = useState(() => readConfig().apiKey || '')
+  const [model, setModel] = useState(() => readConfig().model || DEFAULT_MODEL)
+  const [branchCount, setBranchCount] = useState(() => {
+    const n = Number(readConfig().branchCount)
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_BRANCH_COUNT
+  })
+  const [systemPrompt, setSystemPrompt] = useState<string>(() => {
     const c = readConfig()
-    setApiKey(c.apiKey || '')
-    setModel(c.model || DEFAULT_MODEL)
-    const n = Number(c.branchCount)
-    setBranchCount(Number.isFinite(n) && n > 0 ? n : DEFAULT_BRANCH_COUNT)
-    setSystemPrompt(
-      typeof c.systemPrompt === 'string' && c.systemPrompt.trim()
-        ? c.systemPrompt
-        : DEFAULT_SYSTEM_PROMPT,
-    )
-  }, [])
+    return typeof c.systemPrompt === 'string' && c.systemPrompt.trim()
+      ? c.systemPrompt
+      : DEFAULT_SYSTEM_PROMPT
+  })
+  const [baseUrl, setBaseUrl] = useState<string>(
+    () => readConfig().baseUrl || OPENROUTER_URL,
+  )
+  const baseUrlValid = isValidBaseUrl(baseUrl.trim())
 
   function saveConfig() {
-    writeConfig({ apiKey, model, branchCount, systemPrompt })
+    writeConfig({ apiKey, baseUrl, model, branchCount, systemPrompt })
     setShowAI(false)
   }
 
@@ -52,15 +51,15 @@ export function Settings() {
   }
 
   const hasSelection = useBrainstormStore((s) => s.selectedNodeId !== null)
-  const [hidden, setHidden] = useState(hasSelection)
+  // Delay un-hiding so the panel close animation finishes first; the hide
+  // itself is applied synchronously during render below.
+  const [delayedShow, setDelayedShow] = useState(!hasSelection)
   useEffect(() => {
-    if (hasSelection) {
-      setHidden(true)
-      return
-    }
-    const t = setTimeout(() => setHidden(false), 140)
+    if (hasSelection) return
+    const t = setTimeout(() => setDelayedShow(true), 140)
     return () => clearTimeout(t)
   }, [hasSelection])
+  const hidden = hasSelection || !delayedShow
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -136,7 +135,7 @@ export function Settings() {
             className="bg-white rounded-card p-3.5 w-[320px] flex flex-col gap-2.5 max-h-[80vh] overflow-y-auto"
           >
           <div className="flex items-center justify-between">
-            <label className="text-body text-ink/60">OpenRouter API Key</label>
+            <label className="text-body text-ink/60">API Key</label>
             <a
               href="https://openrouter.ai/keys"
               target="_blank"
@@ -158,6 +157,23 @@ export function Settings() {
             data-form-type="other"
             className="text-ui bg-surface-soft rounded-lg px-3 py-2 w-full outline-none text-ink placeholder:text-ink/40"
           />
+
+          <label className="text-body text-ink/60">Base URL</label>
+          <input
+            type="text"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={OPENROUTER_URL}
+            autoComplete="off"
+            spellCheck={false}
+            className="text-ui bg-surface-soft rounded-lg px-3 py-2 w-full outline-none text-ink placeholder:text-ink/40"
+          />
+          {!baseUrlValid && (
+            <p className="text-caption text-ink/50 -mt-1">
+              Enter a full http(s) URL — an invalid value falls back to the
+              OpenRouter default on save.
+            </p>
+          )}
 
           <label className="text-body text-ink/60">Model</label>
           <input

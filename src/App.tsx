@@ -12,6 +12,7 @@ import { NodeInput } from './components/NodeInput'
 import { ComposeButton } from './components/ComposeButton'
 import { Settings } from './components/Settings'
 import { SidePanel } from './components/SidePanel'
+import { ContextMenu } from './components/ContextMenu'
 import { SelectionCount } from './components/SelectionCount'
 import { Toaster } from './components/Toaster'
 import { WelcomeScreen } from './components/WelcomeScreen'
@@ -112,6 +113,7 @@ function App() {
               <ProjectSwitcher />
             </div>
             <Settings />
+            <ContextMenu />
             <HelpButton />
           </>
         )}

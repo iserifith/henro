@@ -8,11 +8,13 @@ export function Canvas({ children }: { children: ReactNode }) {
   const setPendingNodePosition = useBrainstormStore((s) => s.setPendingNodePosition)
   const selectNode = useBrainstormStore((s) => s.selectNode)
   const selectInRect = useBrainstormStore((s) => s.selectInRect)
+  const openCanvasContextMenu = useBrainstormStore((s) => s.openCanvasContextMenu)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const spaceHeld = useRef(false)
   const [spaceDown, setSpaceDown] = useState(false)
   const isPanning = useRef(false)
+  const [panning, setPanning] = useState(false)
   const isSelecting = useRef(false)
   const dragStart = useRef({ x: 0, y: 0 })
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
@@ -73,7 +75,7 @@ export function Canvas({ children }: { children: ReactNode }) {
       el.removeEventListener('mousedown', blockMiddle)
       el.removeEventListener('auxclick', blockMiddle)
     }
-  }, [zoom])
+  }, [zoom, pan])
 
   const screenToCanvas = useCallback(
     (sx: number, sy: number) => ({
@@ -90,9 +92,14 @@ export function Canvas({ children }: { children: ReactNode }) {
         e.preventDefault()
         ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
         isPanning.current = true
+        setPanning(true)
         dragStart.current = { x: e.clientX, y: e.clientY }
         return
       }
+
+      // Right-click only opens the context menu (handled by onContextMenu) —
+      // never starts marquee selection or panning.
+      if (e.button === 2) return
 
       if (e.target !== e.currentTarget) return
 
@@ -104,6 +111,7 @@ export function Canvas({ children }: { children: ReactNode }) {
       if (spaceHeld.current) {
         // Space held — start panning
         isPanning.current = true
+        setPanning(true)
         dragStart.current = { x: e.clientX, y: e.clientY }
       } else {
         // No space — start selection
@@ -151,6 +159,7 @@ export function Canvas({ children }: { children: ReactNode }) {
   const handlePointerUp = useCallback(() => {
     if (isPanning.current) {
       isPanning.current = false
+      setPanning(false)
       return
     }
 
@@ -170,15 +179,32 @@ export function Canvas({ children }: { children: ReactNode }) {
     [screenToCanvas, setPendingNodePosition],
   )
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      // Empty canvas = the container itself or its direct transform wrapper
+      // (the wrapper is translated across the whole viewport, so it is what a
+      // real right-click on empty space actually targets). Node clicks never
+      // match either, so they are still handled by BubbleNode's own menu.
+      const t = e.target as HTMLElement
+      const isEmptyCanvas =
+        t === e.currentTarget || t.parentElement === e.currentTarget
+      if (!isEmptyCanvas) return
+      e.preventDefault()
+      openCanvasContextMenu(screenToCanvas(e.clientX, e.clientY), e.clientX, e.clientY)
+    },
+    [screenToCanvas, openCanvasContextMenu],
+  )
+
   return (
     <div
       ref={containerRef}
       className="w-full h-full overflow-hidden"
-      style={{ cursor: isPanning.current ? 'grabbing' : spaceDown ? 'grab' : 'default' }}
+      style={{ cursor: panning ? 'grabbing' : spaceDown ? 'grab' : 'default' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
     >
       <div
         style={{

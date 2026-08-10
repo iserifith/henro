@@ -1,7 +1,7 @@
 import { DEFAULT_BRANCH_COUNT, DEFAULT_SYSTEM_PROMPT } from './prompts'
 import { AiError } from './errors'
+import { OPENROUTER_URL } from './config'
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const RETRY_WALL_CLOCK_MS = 20_000
 const NAMING_MODEL = 'anthropic/claude-haiku-4.5'
 const DEBUG = import.meta.env.VITE_HENRO_DEBUG === 'true'
@@ -12,7 +12,9 @@ function getConfig() {
   if (stored) {
     try {
       parsed = JSON.parse(stored)
-    } catch {}
+    } catch {
+      // intentionally empty — ignore malformed stored config
+    }
   }
   const branchCountRaw = Number(parsed.branchCount)
   const systemPrompt =
@@ -20,8 +22,13 @@ function getConfig() {
       ? parsed.systemPrompt
       : DEFAULT_SYSTEM_PROMPT
   const envKey = import.meta.env.VITE_OPENROUTER_API_KEY as string | undefined
+  const effectiveBaseUrl =
+    (parsed.baseUrl as string)?.trim() || OPENROUTER_URL
+  const isOpenRouter = effectiveBaseUrl === OPENROUTER_URL
   return {
     apiKey: (parsed.apiKey as string) || envKey || '',
+    baseUrl: effectiveBaseUrl,
+    isOpenRouter,
     model: (parsed.model as string) || 'anthropic/claude-sonnet-4.5',
     branchCount:
       Number.isFinite(branchCountRaw) && branchCountRaw > 0
@@ -36,11 +43,11 @@ async function chat(
   modelOverride?: string,
   label = 'chat',
 ): Promise<string> {
-  const { apiKey, model: configModel } = getConfig()
+  const { apiKey, model: configModel, baseUrl, isOpenRouter } = getConfig()
   const model = modelOverride || configModel
 
   if (!apiKey) {
-    throw new AiError('no-key', 'OpenRouter API key not set.')
+    throw new AiError('no-key', 'API key not set.')
   }
 
   if (DEBUG) {
@@ -58,13 +65,17 @@ async function chat(
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       let res: Response
       try {
-        res = await fetch(OPENROUTER_URL, {
+        res = await fetch(baseUrl, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
-            'HTTP-Referer': window.location.origin,
-            'X-Title': 'Henro',
+            ...(isOpenRouter
+              ? {
+                  'HTTP-Referer': window.location.origin,
+                  'X-Title': 'Henro',
+                }
+              : {}),
           },
           body: JSON.stringify({ model, messages }),
         })
@@ -88,10 +99,10 @@ async function chat(
 
       if (!res.ok) {
         const body = await res.text().catch(() => '')
-        console.error('OpenRouter error', res.status, body)
+        console.error('AI provider error', res.status, body)
         throw new AiError(
           'unknown',
-          `OpenRouter error ${res.status}: ${body || res.statusText}`,
+          `AI provider error ${res.status}: ${body || res.statusText}`,
           res.status,
         )
       }
@@ -168,7 +179,7 @@ export async function generateBranches(
       .map((l) =>
         l
           .replace(/^\d+[.)]\s*/, '')
-          .replace(/^[\s"'\[,]+|[\s"',\]]+$/g, '')
+          .replace(/^[\s"'[,]+|[\s"',]+$/g, '')
           .trim(),
       )
       .filter(Boolean)

@@ -53,8 +53,10 @@ export function WelcomeScreen() {
                   >
                     OpenRouter
                   </a>{' '}
-                  API key to start brainstorming. Your key stays in this
-                  browser — nothing is sent anywhere else.
+                  API key to start brainstorming — or bring any
+                  OpenAI-compatible endpoint, configurable later in Settings.
+                  Your key stays in this browser — nothing is sent anywhere
+                  else.
                 </p>
               </div>
             </div>

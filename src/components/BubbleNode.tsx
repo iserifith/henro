@@ -35,6 +35,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   const setDraggedNode = useBrainstormStore((s) => s.setDraggedNode)
   const setPendingNodePosition = useBrainstormStore((s) => s.setPendingNodePosition)
   const setPendingConnectionSource = useBrainstormStore((s) => s.setPendingConnectionSource)
+  const openNodeContextMenu = useBrainstormStore((s) => s.openNodeContextMenu)
   const seedNodeId = useBrainstormStore((s) => s.seedNodeId)
   const isSeed = id === seedNodeId
   const [morphDone, setMorphDone] = useState(false)
@@ -105,14 +106,10 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
     return () => observer.disconnect()
   }, [])
 
-  // Expand: drop the clamp immediately so height can grow into the text.
   // Collapse: keep the text unclamped while the container shrinks, then
   // re-clamp once the animation is done so the ellipsis doesn't snap in early.
   useEffect(() => {
-    if (expanded) {
-      setApplyClamp(false)
-      return
-    }
+    if (expanded) return
     const t = setTimeout(() => setApplyClamp(true), 220)
     return () => clearTimeout(t)
   }, [expanded])
@@ -148,8 +145,10 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      // Let middle mouse pass through for canvas panning
-      if (e.button === 1) return
+      // Let middle mouse pass through for canvas panning; right-click only
+      // opens the context menu (handled by onContextMenu) — never starts
+      // a drag or connection gesture.
+      if (e.button === 1 || e.button === 2) return
       e.stopPropagation()
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
 
@@ -298,6 +297,14 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
     [],
   )
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      openNodeContextMenu(id, e.clientX, e.clientY)
+    },
+    [openNodeContextMenu, id],
+  )
+
   // Keep node size in sync with the rendered bubble, including during
   // framer height animations (which don't trigger React re-renders).
   useEffect(() => {
@@ -369,6 +376,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onContextMenu={handleContextMenu}
       onPointerEnter={showDismiss}
       onPointerLeave={queueHideDismiss}
     >
