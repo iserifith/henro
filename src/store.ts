@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { computeChildPositions, type Position, type NodeBox } from './lib/layout'
 import {
   generateBranches,
+  generateQuestions,
   mergeIdeas,
   compose as composeAI,
   generateProjectName,
@@ -33,6 +34,8 @@ function toastError(err: unknown) {
   })
 }
 
+export type NodeKind = 'idea' | 'question' | 'answer'
+
 export type NodeData = {
   id: string
   text: string
@@ -43,6 +46,14 @@ export type NodeData = {
   status: 'active' | 'dismissed'
   origin: 'user' | 'ai'
   steer?: string
+  kind?: NodeKind
+  answerId?: string
+}
+
+// Kind is optional so legacy persisted nodes stay kind-absent — treat them
+// as idea nodes everywhere a kind-conditional decision is made.
+export function effectiveKind(n: NodeData): NodeKind {
+  return n.kind ?? 'idea'
 }
 
 export type SteerPrompt = {
@@ -107,6 +118,8 @@ interface BrainstormStore {
   connections: [string, string][]
   draggedNodeId: string | null
   steerPrompt: SteerPrompt | null
+  askMePrompt: SteerPrompt | null
+  answeringQuestionId: string | null
   pendingConnectionSource: string | null
   seedNodeId: string | null
   mergeAnim: MergeAnim | null
@@ -129,6 +142,10 @@ interface BrainstormStore {
 
   setPendingConnectionSource: (id: string | null) => void
   setSteerPrompt: (prompt: SteerPrompt | null) => void
+  setAskMePrompt: (prompt: SteerPrompt | null) => void
+  openAnswerInput: (questionId: string) => void
+  closeAnswerInput: () => void
+  answerQuestion: (questionId: string, text: string) => void
   addConnection: (id1: string, id2: string) => void
   removeConnection: (id1: string, id2: string) => void
   setNodeSize: (id: string, w: number, h: number) => void
@@ -141,6 +158,7 @@ interface BrainstormStore {
   updateNodeText: (id: string, text: string) => void
   setSeed: (text: string) => void
   expandNode: (id: string, steer?: string) => Promise<void>
+  askMeNode: (id: string, steer?: string) => Promise<void>
   dismissNode: (id: string) => void
   mergeNodes: (id1: string, id2: string) => Promise<void>
   addUserNode: (text: string, position: Position, connectFromId?: string) => void
@@ -272,6 +290,8 @@ function freshEphemeralState() {
     pendingNodePosition: null,
     pendingConnectionSource: null,
     steerPrompt: null,
+    askMePrompt: null,
+    answeringQuestionId: null,
     isLoading: null,
   }
 }
@@ -294,6 +314,8 @@ export const useBrainstormStore = create<BrainstormStore>()(
   connections: [],
   draggedNodeId: null,
   steerPrompt: null,
+  askMePrompt: null,
+  answeringQuestionId: null,
   pendingConnectionSource: null,
   seedNodeId: null,
   mergeAnim: null,
@@ -452,6 +474,9 @@ export const useBrainstormStore = create<BrainstormStore>()(
 
   setPendingConnectionSource: (id) => set({ pendingConnectionSource: id }),
   setSteerPrompt: (prompt) => set({ steerPrompt: prompt }),
+  setAskMePrompt: (prompt) => set({ askMePrompt: prompt }),
+  openAnswerInput: (questionId) => set({ answeringQuestionId: questionId }),
+  closeAnswerInput: () => set({ answeringQuestionId: null }),
   addConnection: (id1, id2) =>
     set((s) => {
       const exists = s.connections.some(
@@ -735,6 +760,123 @@ export const useBrainstormStore = create<BrainstormStore>()(
     }
   },
 
+  askMeNode: async (id, steer) => {
+    const state = get()
+    const node = state.nodes[id]
+    if (!node || state.isLoading) return
+    const preSnap = snapshot(state)
+
+    set({ isLoading: id, askMePrompt: null })
+
+    try {
+      const context = getContextNodes(state.nodes, state.connections, id)
+      const questions = await generateQuestions(
+        node.text,
+        context.direct,
+        context.wider,
+        steer,
+        node.steer,
+      )
+
+      const grandparent = node.parentId ? state.nodes[node.parentId] : null
+      const occupied: NodeBox[] = Object.values(get().nodes)
+        .filter((n) => n.status === 'active')
+        .map((n) => ({ x: n.position.x, y: n.position.y, w: n.size.w, h: n.size.h }))
+      const positions = computeChildPositions(
+        node.position,
+        grandparent?.position ?? null,
+        questions.length,
+        occupied,
+      )
+
+      const trimmedSteer = steer?.trim()
+      const children: NodeData[] = questions.map((text, i) => ({
+        id: uid(),
+        text,
+        parentId: id,
+        childIds: [],
+        position: positions[i],
+        size: { w: 0, h: 0 },
+        status: 'active',
+        origin: 'ai' as const,
+        kind: 'question' as const,
+        answerId: undefined,
+        steer: trimmedSteer || undefined,
+      }))
+
+      set((s) => {
+        const newNodes = { ...s.nodes }
+        children.forEach((child) => {
+          newNodes[child.id] = child
+        })
+        newNodes[id] = {
+          ...newNodes[id],
+          childIds: [...newNodes[id].childIds, ...children.map((c) => c.id)],
+        }
+        return {
+          nodes: newNodes,
+          isLoading: null,
+          past: appendCapped(s.past, preSnap),
+          future: [],
+        }
+      })
+    } catch (err) {
+      console.error('askMeNode failed:', err)
+      set({ isLoading: null })
+      toastError(err)
+    }
+  },
+
+  answerQuestion: (questionId, text) => {
+    const state = get()
+    const question = state.nodes[questionId]
+    const trimmed = text.trim()
+    if (!trimmed) return
+    if (!question) return
+    if ((question.kind ?? 'idea') !== 'question') return
+    if (question.answerId !== undefined) return
+    const preSnap = snapshot(state)
+
+    const grandparent = question.parentId ? state.nodes[question.parentId] : null
+    const occupied: NodeBox[] = Object.values(state.nodes)
+      .filter((n) => n.status === 'active')
+      .map((n) => ({ x: n.position.x, y: n.position.y, w: n.size.w, h: n.size.h }))
+    const positions = computeChildPositions(
+      question.position,
+      grandparent?.position ?? null,
+      1,
+      occupied,
+    )
+
+    const answer: NodeData = {
+      id: uid(),
+      text: trimmed,
+      parentId: questionId,
+      childIds: [],
+      position: positions[0],
+      size: { w: 0, h: 0 },
+      status: 'active',
+      origin: 'user',
+      kind: 'answer',
+    }
+
+    set((s) => {
+      const newNodes = { ...s.nodes }
+      newNodes[answer.id] = answer
+      newNodes[questionId] = {
+        ...newNodes[questionId],
+        childIds: [...newNodes[questionId].childIds, answer.id],
+        answerId: answer.id,
+      }
+      return {
+        nodes: newNodes,
+        answeringQuestionId: null,
+        past: appendCapped(s.past, preSnap),
+        future: [],
+      }
+    })
+  },
+
   dismissNode: (id) => {
     get().commitTextEdit()
     set((s) => {
@@ -765,6 +907,9 @@ export const useBrainstormStore = create<BrainstormStore>()(
     const node1 = state.nodes[id1]
     const node2 = state.nodes[id2]
     if (!node1 || !node2 || state.isLoading) return
+    // FR-020: question nodes can never be merged (defense-in-depth behind the
+    // UI-level checks in ContextMenu and findMergeCandidate).
+    if ((node1.kind ?? 'idea') === 'question' || (node2.kind ?? 'idea') === 'question') return
     const preSnap = snapshot(state)
 
     const midpoint: Position = {
@@ -908,7 +1053,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
     if (state.isLoading) return
 
     const activeTexts = Object.values(state.nodes)
-      .filter((n) => n.status === 'active')
+      .filter((n) => n.status === 'active' && (n.kind ?? 'idea') !== 'question')
       .map((n) => n.text)
 
     if (activeTexts.length === 0) return

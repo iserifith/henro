@@ -16,6 +16,7 @@ export function ContextMenu() {
   const nodes = useBrainstormStore((s) => s.nodes)
   const selectedNodeIds = useBrainstormStore((s) => s.selectedNodeIds)
   const setSteerPrompt = useBrainstormStore((s) => s.setSteerPrompt)
+  const setAskMePrompt = useBrainstormStore((s) => s.setAskMePrompt)
   const dismissNode = useBrainstormStore((s) => s.dismissNode)
   const mergeNodes = useBrainstormStore((s) => s.mergeNodes)
   const setPendingNodePosition = useBrainstormStore((s) => s.setPendingNodePosition)
@@ -76,6 +77,20 @@ export function ContextMenu() {
     const node = nodes[nodeId]
     nodeActive = !!node && node.status === 'active'
     if (nodeActive) {
+      // FR-001 carve-out: question nodes only ever offer Delete — no
+      // Expand/Branch, Steer/Lens, Ask Me, or Merge (research.md R3).
+      if ((node.kind ?? 'idea') === 'question') {
+        items = [
+          {
+            key: 'delete',
+            label: 'Delete',
+            onActivate: () => {
+              dismissNode(nodeId)
+              closeContextMenu()
+            },
+          },
+        ]
+      } else {
       items = [
         {
           key: 'expand',
@@ -94,6 +109,14 @@ export function ContextMenu() {
           },
         },
         {
+          key: 'ask-me',
+          label: 'Ask Me',
+          onActivate: () => {
+            setAskMePrompt({ nodeId, defaultValue: '' })
+            closeContextMenu()
+          },
+        },
+        {
           key: 'delete',
           label: 'Delete',
           onActivate: () => {
@@ -104,14 +127,23 @@ export function ContextMenu() {
       ]
       if (selectedNodeIds.length === 2 && selectedNodeIds.includes(nodeId)) {
         const otherId = selectedNodeIds.find((id) => id !== nodeId)!
-        items.splice(2, 0, {
-          key: 'merge',
-          label: 'Merge',
-          onActivate: () => {
-            mergeNodes(nodeId, otherId)
-            closeContextMenu()
-          },
-        })
+        // FR-020: never offer Merge when either selected node is a question
+        // (the nodeId check is redundant with the kind-aware branch above,
+        // but this is the only place that also checks the other node).
+        if (
+          (nodes[nodeId].kind ?? 'idea') !== 'question' &&
+          (nodes[otherId].kind ?? 'idea') !== 'question'
+        ) {
+          items.splice(3, 0, {
+            key: 'merge',
+            label: 'Merge',
+            onActivate: () => {
+              mergeNodes(nodeId, otherId)
+              closeContextMenu()
+            },
+          })
+        }
+      }
       }
     }
   } else if (contextMenu?.kind === 'canvas') {

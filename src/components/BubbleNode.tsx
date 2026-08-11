@@ -36,6 +36,13 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   const setPendingNodePosition = useBrainstormStore((s) => s.setPendingNodePosition)
   const setPendingConnectionSource = useBrainstormStore((s) => s.setPendingConnectionSource)
   const openNodeContextMenu = useBrainstormStore((s) => s.openNodeContextMenu)
+  const askMePrompt = useBrainstormStore((s) => s.askMePrompt)
+  const setAskMePrompt = useBrainstormStore((s) => s.setAskMePrompt)
+  const askMeNode = useBrainstormStore((s) => s.askMeNode)
+  const answeringQuestionId = useBrainstormStore((s) => s.answeringQuestionId)
+  const answerQuestion = useBrainstormStore((s) => s.answerQuestion)
+  const openAnswerInput = useBrainstormStore((s) => s.openAnswerInput)
+  const closeAnswerInput = useBrainstormStore((s) => s.closeAnswerInput)
   const seedNodeId = useBrainstormStore((s) => s.seedNodeId)
   const isSeed = id === seedNodeId
   const [morphDone, setMorphDone] = useState(false)
@@ -130,10 +137,14 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   const findMergeCandidate = useCallback(
     (pos: { x: number; y: number }) => {
       const allNodes = useBrainstormStore.getState().nodes
+      // FR-020: a dragged question node can never be a merge source.
+      if ((allNodes[id]?.kind ?? 'idea') === 'question') return undefined
       for (const nid in allNodes) {
         if (nid === id) continue
         const n = allNodes[nid]
         if (n.status !== 'active') continue
+        // FR-020: question nodes can never be merge targets either.
+        if ((n.kind ?? 'idea') === 'question') continue
         if (Math.hypot(n.position.x - pos.x, n.position.y - pos.y) < MERGE_DISTANCE) {
           return n
         }
@@ -262,6 +273,9 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
         toggleNodeSelected(id)
         isShiftClick.current = false
         lastClickTime.current = 0
+      } else if ((node.kind ?? 'idea') === 'question' && node.answerId === undefined) {
+        openAnswerInput(id)
+        lastClickTime.current = Date.now()
       } else if (isSecondPress.current) {
         setSteerPrompt({ nodeId: id, defaultValue: 'brainstorm ideas' })
         isSecondPress.current = false
@@ -279,7 +293,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
     setMergeTarget(null)
     isSecondPress.current = false
     groupStarts.current = null
-  }, [setSteerPrompt, selectNode, toggleNodeSelected, mergeNodes, addConnection, mergeTarget, id, setMergeTarget, setConnectionDrag, setDraggedNode, connectionDrag, setPendingNodePosition, setPendingConnectionSource])
+  }, [setSteerPrompt, selectNode, toggleNodeSelected, mergeNodes, addConnection, mergeTarget, id, setMergeTarget, setConnectionDrag, setDraggedNode, connectionDrag, setPendingNodePosition, setPendingConnectionSource, openAnswerInput, node])
 
   const handleDismiss = useCallback(
     (e: React.MouseEvent) => {
@@ -392,9 +406,13 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
           ${
             isConnectionTarget || isMergeHighlight || isSelected
               ? 'outline outline-[1.5px] outline-select'
-              : node.origin === 'ai'
-                ? 'outline outline-1 outline-ai'
-                : ''
+              : (node.kind ?? 'idea') === 'question'
+                ? node.answerId
+                  ? 'outline outline-1 outline-question/50'
+                  : 'outline outline-1 outline-question'
+                : node.origin === 'ai'
+                  ? 'outline outline-1 outline-ai'
+                  : ''
           }
           ${isExpandLoading || isMergePlaceholder ? 'shimmer-outline' : ''}
         `}
@@ -459,6 +477,19 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
           onCancel={() => setSteerPrompt(null)}
         />
       )}
+      {askMePrompt?.nodeId === id && (
+        <SteerInput
+          defaultValue={askMePrompt.defaultValue}
+          onSubmit={(value) => askMeNode(id, value)}
+          onCancel={() => setAskMePrompt(null)}
+        />
+      )}
+      {answeringQuestionId === id && (
+        <AnswerInput
+          onSubmit={(text) => answerQuestion(id, text)}
+          onCancel={() => closeAnswerInput()}
+        />
+      )}
     </div>
   )
 })
@@ -493,5 +524,42 @@ function SteerInput({
       placeholder="branch on..."
       className="mt-2.5 w-full px-3 py-2 text-body rounded-control outline-none bg-white text-ink placeholder:text-ink/40"
     />
+  )
+}
+
+function AnswerInput({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (text: string) => void
+  onCancel: () => void
+}) {
+  const [text, setText] = useState('')
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (text.trim()) onSubmit(text.trim())
+      }}
+    >
+      <input
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onPointerDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            onCancel()
+          }
+        }}
+        onBlur={() => {
+          if (text.trim()) onSubmit(text.trim())
+          else onCancel()
+        }}
+        placeholder="your answer..."
+        className="mt-2.5 w-full px-3 py-2 text-body rounded-control outline-none bg-white text-ink placeholder:text-ink/40"
+      />
+    </form>
   )
 }

@@ -1,4 +1,11 @@
-import { DEFAULT_BRANCH_COUNT, DEFAULT_SYSTEM_PROMPT } from './prompts'
+import {
+  DEFAULT_BRANCH_COUNT,
+  DEFAULT_QUESTION_COUNT,
+  DEFAULT_SYSTEM_PROMPT,
+  QUESTION_COUNT_MAX,
+  QUESTION_COUNT_MIN,
+  QUESTION_DIMENSIONS,
+} from './prompts'
 import { AiError } from './errors'
 import { OPENROUTER_URL } from './config'
 
@@ -190,6 +197,80 @@ export async function generateBranches(
     { length: branchCount },
     (_, i) => `${text} — variation ${String.fromCharCode(65 + i)}`,
   )
+}
+
+export async function generateQuestions(
+  text: string,
+  directContext: ContextNode[],
+  widerContext: ContextNode[],
+  steer?: string,
+  targetSteer?: string,
+): Promise<string[]> {
+  const { systemPrompt } = getConfig()
+
+  const trimmedSteer = steer?.trim()
+  const trimmedTargetSteer = targetSteer?.trim()
+  const askStr = trimmedSteer ? `\nAsk: ${trimmedSteer}` : ''
+  const targetLine = trimmedTargetSteer
+    ? `Target to ask about: "${text}" (created under ask: "${trimmedTargetSteer}")`
+    : `Target to ask about: "${text}"`
+  const formatNode = (n: ContextNode) => {
+    const s = n.steer?.trim()
+    return s ? `- ${n.text} (under ask: "${s}")` : `- ${n.text}`
+  }
+  const directStr =
+    directContext.length > 0
+      ? `\n\nDirectly connected to the target (parent/siblings/linked — already-taken ground; use only to understand the neighborhood, do not restate, rename, or re-skin these):\n${directContext.map(formatNode).join('\n')}`
+      : ''
+  const widerStr =
+    widerContext.length > 0
+      ? `\n\nWider context (background — do not repeat, do not branch from these):\n${widerContext.map(formatNode).join('\n')}`
+      : ''
+
+  const system = `${systemPrompt}\n\nReturn ONLY a JSON array of strings — probing questions. No markdown, no explanation.`
+  const user = `${targetLine}${askStr}${directStr}${widerStr}\n\nReturn between ${QUESTION_COUNT_MIN} and ${QUESTION_COUNT_MAX} items as a JSON array of strings. Each item must be a single probing question about the target — addressing the ask, following where it points, or probing what it assumes. Draw from dimensions like: audience, failure mode, cost, a hidden assumption, a next step — and each question must take a distinct dimension from the others. Treat every listed context item (direct and wider) as already-taken ground: no restating, renaming, or re-skinning their angles. Match the register of the surrounding content; the target sets the substance.`
+
+  const raw = await chat(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    undefined,
+    'questions',
+  )
+
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:json)?\s*\n?/i, '')
+    .replace(/\n?\s*```\s*$/, '')
+    .trim()
+
+  const normalize = (items: string[]): string[] => {
+    if (items.length > QUESTION_COUNT_MAX) return items.slice(0, QUESTION_COUNT_MAX)
+    // [3,5] and the <3-but->=1 case both pass through as-is (no padding).
+    return items
+  }
+
+  try {
+    const parsed = JSON.parse(stripped)
+    if (Array.isArray(parsed) && parsed.length >= 1) {
+      return normalize(parsed.map(String))
+    }
+  } catch {
+    // Fallback: split by newlines, strip numbering and stray quotes/brackets
+    const lines = stripped
+      .split('\n')
+      .map((l) =>
+        l
+          .replace(/^\d+[.)]\s*/, '')
+          .replace(/^[\s"'[,]+|[\s"',]+$/g, '')
+          .trim(),
+      )
+      .filter(Boolean)
+    if (lines.length >= 1) return normalize(lines)
+  }
+
+  return QUESTION_DIMENSIONS.slice(0, DEFAULT_QUESTION_COUNT).map((f) => f(text))
 }
 
 export async function mergeIdeas(a: string, b: string): Promise<string> {
