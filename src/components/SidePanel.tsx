@@ -43,6 +43,7 @@ export function SidePanel() {
     !!node && node.childIds.some((id) => nodes[id]?.status === 'active')
   const parent = node?.parentId ? nodes[node.parentId] : null
   const isAI = node?.origin === 'ai'
+  const kind = node?.kind ?? 'idea'
 
   return (
     <AnimatePresence>
@@ -85,6 +86,23 @@ export function SidePanel() {
               />
             </div>
 
+            {kind === 'question' && node.answerId && (
+              <button
+                onClick={() => selectNode(node.answerId!)}
+                className="self-start ml-3.5 mt-1.5 text-caption text-ink/60 hover:text-ink underline underline-offset-2"
+              >
+                View answer →
+              </button>
+            )}
+            {kind === 'answer' && node.parentId && nodes[node.parentId] && (
+              <button
+                onClick={() => selectNode(node.parentId!)}
+                className="self-start ml-3.5 mt-1.5 text-caption text-ink/60 hover:text-ink underline underline-offset-2"
+              >
+                Answers: {nodes[node.parentId].text} →
+              </button>
+            )}
+
             {isAI && (
               <div className="flex flex-col">
                 {parent && (
@@ -120,21 +138,23 @@ export function SidePanel() {
           </div>
 
           <div className="flex gap-2 pt-2">
-            <button
-              onClick={() => {
-                if (hasActiveChildren) {
-                  selectNode(null)
-                } else {
-                  setSteerPrompt({
-                    nodeId: node.id,
-                    defaultValue: 'brainstorm ideas',
-                  })
-                }
-              }}
-              className="flex-1 px-3.5 py-1.75 text-ui font-medium bg-chip rounded-lg text-ink hover:bg-chip-hover transition-colors"
-            >
-              Expand
-            </button>
+            {kind !== 'question' && (
+              <button
+                onClick={() => {
+                  if (hasActiveChildren) {
+                    selectNode(null)
+                  } else {
+                    setSteerPrompt({
+                      nodeId: node.id,
+                      defaultValue: 'brainstorm ideas',
+                    })
+                  }
+                }}
+                className="flex-1 px-3.5 py-1.75 text-ui font-medium bg-chip rounded-lg text-ink hover:bg-chip-hover transition-colors"
+              >
+                Expand
+              </button>
+            )}
             <button
               onClick={() => {
                 dismissNode(node.id)
