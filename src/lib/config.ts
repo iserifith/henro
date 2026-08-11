@@ -7,6 +7,10 @@ export const CONFIG_KEY = 'openrouter-config'
 export const OPENROUTER_URL =
   'https://openrouter.ai/api/v1/chat/completions'
 
+/** Default chat model when the user hasn't configured one — single source of
+ * truth shared by ai.ts (request payload), Settings.tsx, WelcomeScreen.tsx. */
+export const DEFAULT_MODEL = 'anthropic/claude-sonnet-4.5'
+
 export type OpenRouterConfig = {
   apiKey: string
   baseUrl?: string

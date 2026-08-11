@@ -9,10 +9,8 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   type PresetKey,
 } from '../lib/prompts'
-import { readConfig, writeConfig, OPENROUTER_URL, isValidBaseUrl } from '../lib/config'
+import { readConfig, writeConfig, OPENROUTER_URL, DEFAULT_MODEL, isValidBaseUrl } from '../lib/config'
 import { BranchIcon } from './icons'
-
-const DEFAULT_MODEL = 'anthropic/claude-sonnet-4.5'
 
 export function Settings() {
   const showAI = useBrainstormStore((s) => s.settingsAIOpen)
@@ -149,7 +147,7 @@ export function Settings() {
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-or-..."
+            placeholder="API key"
             autoComplete="off"
             data-bwignore="true"
             data-1p-ignore=""

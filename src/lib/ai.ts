@@ -1,6 +1,6 @@
 import { DEFAULT_BRANCH_COUNT, DEFAULT_SYSTEM_PROMPT } from './prompts'
 import { AiError } from './errors'
-import { OPENROUTER_URL } from './config'
+import { OPENROUTER_URL, DEFAULT_MODEL } from './config'
 
 const RETRY_WALL_CLOCK_MS = 20_000
 const NAMING_MODEL = 'anthropic/claude-haiku-4.5'
@@ -29,7 +29,7 @@ function getConfig() {
     apiKey: (parsed.apiKey as string) || envKey || '',
     baseUrl: effectiveBaseUrl,
     isOpenRouter,
-    model: (parsed.model as string) || 'anthropic/claude-sonnet-4.5',
+    model: (parsed.model as string) || DEFAULT_MODEL,
     branchCount:
       Number.isFinite(branchCountRaw) && branchCountRaw > 0
         ? Math.min(10, Math.floor(branchCountRaw))
