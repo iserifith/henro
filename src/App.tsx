@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useBrainstormStore } from './store'
 import { usePhysics } from './lib/usePhysics'
 import { useHasApiKey } from './lib/config'
+import { initMcpBridge } from './lib/mcpBridge'
 import { Canvas } from './components/Canvas'
 import { Connections } from './components/Connections'
 import { BubbleNode } from './components/BubbleNode'
@@ -40,6 +41,10 @@ function App() {
   const deleteSelection = useBrainstormStore((s) => s.deleteSelection)
   const undo = useBrainstormStore((s) => s.undo)
   const redo = useBrainstormStore((s) => s.redo)
+
+  useEffect(() => {
+    initMcpBridge()
+  }, [])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

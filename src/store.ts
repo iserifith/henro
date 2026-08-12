@@ -157,7 +157,7 @@ interface BrainstormStore {
   setAskMePrompt: (prompt: SteerPrompt | null) => void
   openAnswerInput: (questionId: string) => void
   closeAnswerInput: () => void
-  answerQuestion: (questionId: string, text: string) => void
+  answerQuestion: (questionId: string, text: string) => string | undefined
   addConnection: (id1: string, id2: string) => void
   removeConnection: (id1: string, id2: string) => void
   setNodeSize: (id: string, w: number, h: number) => void
@@ -169,11 +169,11 @@ interface BrainstormStore {
   setConnectionDrag: (drag: { sourceId: string; point: Position } | null) => void
   updateNodeText: (id: string, text: string) => void
   setSeed: (text: string) => void
-  expandNode: (id: string, steer?: string) => Promise<void>
-  askMeNode: (id: string, steer?: string) => Promise<void>
+  expandNode: (id: string, steer?: string) => Promise<string[]>
+  askMeNode: (id: string, steer?: string) => Promise<string[]>
   dismissNode: (id: string) => void
-  mergeNodes: (id1: string, id2: string) => Promise<void>
-  addUserNode: (text: string, position: Position, connectFromId?: string) => void
+  mergeNodes: (id1: string, id2: string) => Promise<string | undefined>
+  addUserNode: (text: string, position: Position, connectFromId?: string) => string
   moveNode: (id: string, position: Position) => void
   moveNodes: (updates: Record<string, Position>) => void
   setDraggedNode: (id: string | null) => void
@@ -724,10 +724,10 @@ export const useBrainstormStore = create<BrainstormStore>()(
   expandNode: async (id, steer) => {
     const state = get()
     const node = state.nodes[id]
-    if (!node) return
+    if (!node) return []
     if (state.isLoading) {
       notifyBusy()
-      return
+      return []
     }
     const preSnap = snapshot(state)
 
@@ -783,20 +783,22 @@ export const useBrainstormStore = create<BrainstormStore>()(
           future: [],
         }
       })
+      return children.map((c) => c.id)
     } catch (err) {
       console.error('expandNode failed:', err)
       set({ isLoading: null })
       toastError(err)
+      return []
     }
   },
 
   askMeNode: async (id, steer) => {
     const state = get()
     const node = state.nodes[id]
-    if (!node) return
+    if (!node) return []
     if (state.isLoading) {
       notifyBusy()
-      return
+      return []
     }
     const preSnap = snapshot(state)
 
@@ -855,10 +857,12 @@ export const useBrainstormStore = create<BrainstormStore>()(
           future: [],
         }
       })
+      return children.map((c) => c.id)
     } catch (err) {
       console.error('askMeNode failed:', err)
       set({ isLoading: null })
       toastError(err)
+      return []
     }
   },
 
@@ -866,10 +870,10 @@ export const useBrainstormStore = create<BrainstormStore>()(
     const state = get()
     const question = state.nodes[questionId]
     const trimmed = text.trim()
-    if (!trimmed) return
-    if (!question) return
-    if ((question.kind ?? 'idea') !== 'question') return
-    if (question.answerId !== undefined) return
+    if (!trimmed) return undefined
+    if (!question) return undefined
+    if ((question.kind ?? 'idea') !== 'question') return undefined
+    if (question.answerId !== undefined) return undefined
     const preSnap = snapshot(state)
 
     const grandparent = question.parentId ? state.nodes[question.parentId] : null
@@ -910,6 +914,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
         future: [],
       }
     })
+    return answer.id
   },
 
   dismissNode: (id) => {
@@ -941,14 +946,14 @@ export const useBrainstormStore = create<BrainstormStore>()(
     const state = get()
     const node1 = state.nodes[id1]
     const node2 = state.nodes[id2]
-    if (!node1 || !node2) return
+    if (!node1 || !node2) return undefined
     if (state.isLoading) {
       notifyBusy()
-      return
+      return undefined
     }
     // FR-020: question nodes can never be merged (defense-in-depth behind the
     // UI-level checks in ContextMenu and findMergeCandidate).
-    if ((node1.kind ?? 'idea') === 'question' || (node2.kind ?? 'idea') === 'question') return
+    if ((node1.kind ?? 'idea') === 'question' || (node2.kind ?? 'idea') === 'question') return undefined
     const preSnap = snapshot(state)
 
     const midpoint: Position = {
@@ -999,6 +1004,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
           future: [],
         }
       })
+      return placeholderId
     } catch (err) {
       console.error('mergeNodes failed:', err)
       // Rollback: drop placeholder, un-dismiss originals.
@@ -1015,6 +1021,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
         }
       })
       toastError(err)
+      return undefined
     }
   },
 
@@ -1046,6 +1053,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
         future: [],
       }
     })
+    return id
   },
 
   moveNode: (id, position) => {

@@ -33,7 +33,6 @@ src/
 │   ├── Connections.tsx  – SVG edges
 │   ├── SeedInput.tsx    – initial seed prompt (pre-canvas)
 │   ├── NodeInput.tsx    – inline rename / per-node prompt
-│   ├── SidePanel.tsx    – node detail (on selection)
 │   ├── ComposeButton.tsx– summary modal
 │   ├── Settings.tsx     – API key + model + branch count + system prompt (presets + editor)
 │   ├── ProjectSwitcher.tsx
@@ -55,9 +54,20 @@ src/
 │   ├── uid.ts           – RFC4122 v4 UUID helper (works in non-secure contexts)
 │   ├── layout.ts        – child-node position math
 │   ├── physics.ts       – overlap resolution
-│   └── usePhysics.ts    – settle-after-drag hook
+│   ├── usePhysics.ts    – settle-after-drag hook
+│   └── mcpBridge.ts     – opt-in WebSocket client for the mcp/ agent bridge (see below)
 └── index.css             – Tailwind theme + prose-compose + scrollbar-soft
+
+mcp/                       – standalone Node package, own package.json (see mcp/README.md)
+├── src/server.js          – MCP stdio server + WebSocket relay to a Henro tab
+└── README.md
 ```
+
+There's no side panel — reading, inline editing, and per-node metadata (branch lineage, prompt used) all live directly on the canvas bubble (`BubbleNode.tsx`), triggered from the right-click context menu (`ContextMenu.tsx`: Edit, Info) rather than a fixed dock.
+
+### MCP agent bridge (`mcp/`)
+
+A separate, opt-in package that lets an MCP client (Claude Code, etc.) read and control a live Henro canvas — list/add/edit nodes, trigger Expand/Ask Me/Merge/Compose, manage projects — via a local WebSocket. Henro is the WS *client* (`src/lib/mcpBridge.ts`); the Node process in `mcp/` is the WS *server* and also speaks MCP over stdio. Off by default, gated by `VITE_HENRO_MCP_BRIDGE=true` at build time — this is the one part of the app that talks to a local process instead of just localStorage + the AI provider, so keep it strictly opt-in and don't let it leak into the default build path. `mcp/` has its own `package.json`/`node_modules`, not part of the root pnpm workspace.
 
 ### Persistence schema
 
@@ -75,13 +85,14 @@ Prompt templates live in `src/lib/ai.ts` and `src/lib/prompts.ts`. `chat()` acce
 
 - TypeScript strict; no `any` without a comment explaining why.
 - Use existing Tailwind theme tokens (`text-ink`, `bg-surface-soft`, `bg-chip`, `border-line-neutral`, etc.) instead of raw hex/colors.
-- Node bubbles on the canvas are **text-only**. Metadata about a node (origin, depth, lens used) belongs in the side panel on selection — not as hover labels or inline tags on the bubble.
+- Node bubbles on the canvas are **text-only** in their default (collapsed/read) state. Metadata about a node (origin, branch lineage, lens used) is opt-in via the context menu's Info toggle — not as hover labels or always-on inline tags on the bubble.
 - New dependencies with non-trivial bundle cost, changes to the persistence schema/storage keys, or anything that breaks the BYOK/local-only story (backend, accounts) should be raised as an issue before implementing.
 
 ## Env flags (`.env.local`, copy from `.env.example`)
 
 - `VITE_OPENROUTER_API_KEY` — dev-only fallback key. **Never set in a hosted build** — Vite inlines `VITE_*` vars into the public bundle.
 - `VITE_HENRO_DEBUG=true` — logs AI prompts/responses to console.
+- `VITE_HENRO_MCP_BRIDGE=true` (+ optional `VITE_HENRO_MCP_BRIDGE_URL`) — enables the `mcp/` agent bridge. See `mcp/README.md`.
 
 ## Spec-driven feature workflow
 
