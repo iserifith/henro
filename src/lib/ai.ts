@@ -13,6 +13,14 @@ const RETRY_WALL_CLOCK_MS = 20_000
 const NAMING_MODEL = 'anthropic/claude-haiku-4.5'
 const DEBUG = import.meta.env.VITE_HENRO_DEBUG === 'true'
 
+// Ask Me overrides the user's configured model with a reasoning-capable one
+// (via a local 9Router deployment) so probing questions get real thinking
+// depth instead of the default chat model. Only meaningful when baseUrl
+// points at a 9Router instance carrying this model id — on a different
+// endpoint the request will simply 404/error like any unknown model string.
+export const ASK_ME_MODEL = 'rootsys/kimi-k3'
+export const ASK_ME_REASONING_EFFORT: ReasoningEffort = 'high'
+
 function getConfig() {
   const stored = localStorage.getItem('openrouter-config')
   let parsed: Record<string, unknown> = {}
@@ -45,10 +53,17 @@ function getConfig() {
   }
 }
 
+// Unified reasoning-effort levels per 9Router's thinkingUnified translator —
+// it accepts this one shape (OpenAI o-series convention: reasoning_effort)
+// and auto-translates to whatever the underlying model natively expects.
+// Non-9Router / non-reasoning endpoints simply ignore the field.
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 async function chat(
   messages: { role: string; content: string }[],
   modelOverride?: string,
   label = 'chat',
+  reasoningEffort?: ReasoningEffort,
 ): Promise<string> {
   const { apiKey, model: configModel, baseUrl, isOpenRouter } = getConfig()
   const model = modelOverride || configModel
@@ -60,6 +75,7 @@ async function chat(
   if (DEBUG) {
     console.groupCollapsed(`%c[AI] ${label}`, 'color:#CA372C;font-weight:500')
     console.log('model:', model)
+    if (reasoningEffort) console.log('reasoning_effort:', reasoningEffort)
     messages.forEach((m) =>
       console.log(`%c${m.role}:`, 'color:#888', `\n${m.content}`),
     )
@@ -84,7 +100,11 @@ async function chat(
                 }
               : {}),
           },
-          body: JSON.stringify({ model, messages }),
+          body: JSON.stringify({
+            model,
+            messages,
+            ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+          }),
         })
       } catch (err) {
         throw new AiError(
@@ -114,8 +134,22 @@ async function chat(
         )
       }
 
-      const data = await res.json()
-      const content = data.choices[0].message.content as string
+      // Some providers (observed on 9Router's kimi-k3 route) append a stray
+      // SSE-style "data: [DONE]" terminator after the JSON body even on a
+      // non-streaming request, which breaks res.json() outright — strip it
+      // before parsing instead of trusting the body is pure JSON.
+      const rawBody = await res.text()
+      const cleanedBody = rawBody.replace(/\s*data:\s*\[DONE\]\s*$/i, '').trim()
+      let data: { choices: [{ message: { content: string } }] }
+      try {
+        data = JSON.parse(cleanedBody)
+      } catch (err) {
+        throw new AiError(
+          'unknown',
+          `Malformed response from AI provider: ${err instanceof Error ? err.message : 'invalid JSON'}`,
+        )
+      }
+      const content = data.choices[0].message.content
       if (DEBUG) console.log('%cresponse:', 'color:#8FD9ED', `\n${content}`)
       return content
     }
@@ -128,12 +162,17 @@ async function chat(
 
 export type ContextNode = { text: string; steer?: string }
 
+// Passed through to chat() untouched — lets a call site pick a specific
+// model (e.g. a thinking-capable one) and/or reasoning depth per request.
+export type GenOptions = { model?: string; reasoningEffort?: ReasoningEffort }
+
 export async function generateBranches(
   text: string,
   directContext: ContextNode[],
   widerContext: ContextNode[],
   steer?: string,
   targetSteer?: string,
+  options?: GenOptions,
 ): Promise<string[]> {
   const { branchCount, systemPrompt } = getConfig()
 
@@ -156,7 +195,7 @@ export async function generateBranches(
       ? `\n\nWider context (background — do not repeat, do not branch from these):\n${widerContext.map(formatNode).join('\n')}`
       : ''
 
-  const system = `${systemPrompt}\n\nReturn ONLY a JSON array of ${branchCount} strings. No markdown, no explanation.`
+  const system = `${systemPrompt}\n\nReturn ONLY a JSON array of ${branchCount} strings — no code fences, no explanation outside the array. Each string's content may use markdown (headers, bold, lists) where it aids clarity.`
   const user = `${targetLine}${askStr}${directStr}${widerStr}\n\nReturn ${branchCount} items as a JSON array of strings. Each item must advance the target's substance — addressing the ask, following where it points, or exploring what it implies. Treat every listed context item (direct and wider) as already-taken ground: no restating, renaming, or re-skinning their analogies, mechanisms, or names. When generating multiple, each must take a different angle from the others. Match the register of the surrounding content; the target sets the substance.`
 
   const raw = await chat(
@@ -164,8 +203,9 @@ export async function generateBranches(
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    undefined,
+    options?.model,
     'branches',
+    options?.reasoningEffort,
   )
 
   const stripped = raw
@@ -205,6 +245,7 @@ export async function generateQuestions(
   widerContext: ContextNode[],
   steer?: string,
   targetSteer?: string,
+  options?: GenOptions,
 ): Promise<string[]> {
   const { systemPrompt } = getConfig()
 
@@ -227,7 +268,7 @@ export async function generateQuestions(
       ? `\n\nWider context (background — do not repeat, do not branch from these):\n${widerContext.map(formatNode).join('\n')}`
       : ''
 
-  const system = `${systemPrompt}\n\nReturn ONLY a JSON array of strings — probing questions. No markdown, no explanation.`
+  const system = `${systemPrompt}\n\nReturn ONLY a JSON array of strings — probing questions — no code fences, no explanation outside the array. Light markdown (bold, inline code) is fine within a question where it aids clarity.`
   const user = `${targetLine}${askStr}${directStr}${widerStr}\n\nReturn between ${QUESTION_COUNT_MIN} and ${QUESTION_COUNT_MAX} items as a JSON array of strings. Each item must be a single probing question about the target — addressing the ask, following where it points, or probing what it assumes. Draw from dimensions like: audience, failure mode, cost, a hidden assumption, a next step — and each question must take a distinct dimension from the others. Treat every listed context item (direct and wider) as already-taken ground: no restating, renaming, or re-skinning their angles. Match the register of the surrounding content; the target sets the substance.`
 
   const raw = await chat(
@@ -235,8 +276,9 @@ export async function generateQuestions(
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    undefined,
+    options?.model,
     'questions',
+    options?.reasoningEffort,
   )
 
   const stripped = raw
@@ -273,7 +315,11 @@ export async function generateQuestions(
   return QUESTION_DIMENSIONS.slice(0, DEFAULT_QUESTION_COUNT).map((f) => f(text))
 }
 
-export async function mergeIdeas(a: string, b: string): Promise<string> {
+export async function mergeIdeas(
+  a: string,
+  b: string,
+  options?: GenOptions,
+): Promise<string> {
   return chat(
     [
       {
@@ -286,12 +332,16 @@ export async function mergeIdeas(a: string, b: string): Promise<string> {
         content: `Merge these ideas:\n1. ${a}\n2. ${b}`,
       },
     ],
-    undefined,
+    options?.model,
     'merge',
+    options?.reasoningEffort,
   )
 }
 
-export async function compose(texts: string[]): Promise<string> {
+export async function compose(
+  texts: string[],
+  options?: GenOptions,
+): Promise<string> {
   return chat(
     [
       {
@@ -304,12 +354,18 @@ export async function compose(texts: string[]): Promise<string> {
         content: `Synthesize these brainstorm ideas into a coherent summary:\n\n${texts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`,
       },
     ],
-    undefined,
+    options?.model,
     'compose',
+    options?.reasoningEffort,
   )
 }
 
 export async function generateProjectName(seed: string): Promise<string> {
+  // NAMING_MODEL is an Anthropic model id — only reachable through
+  // OpenRouter's aggregated catalog. A custom baseUrl (self-hosted router,
+  // different provider) has no guarantee that id resolves, so fall back to
+  // the user's own configured model there instead of a hardcoded 404.
+  const { isOpenRouter } = getConfig()
   const raw = await chat(
     [
       {
@@ -322,7 +378,7 @@ export async function generateProjectName(seed: string): Promise<string> {
         content: `Seed: ${seed}`,
       },
     ],
-    NAMING_MODEL,
+    isOpenRouter ? NAMING_MODEL : undefined,
     'project-name',
   )
 

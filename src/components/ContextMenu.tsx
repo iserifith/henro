@@ -15,8 +15,10 @@ export function ContextMenu() {
   const contextMenu = useBrainstormStore((s) => s.contextMenu)
   const nodes = useBrainstormStore((s) => s.nodes)
   const selectedNodeIds = useBrainstormStore((s) => s.selectedNodeIds)
+  const expandNode = useBrainstormStore((s) => s.expandNode)
   const setSteerPrompt = useBrainstormStore((s) => s.setSteerPrompt)
   const setAskMePrompt = useBrainstormStore((s) => s.setAskMePrompt)
+  const openAnswerInput = useBrainstormStore((s) => s.openAnswerInput)
   const dismissNode = useBrainstormStore((s) => s.dismissNode)
   const mergeNodes = useBrainstormStore((s) => s.mergeNodes)
   const setPendingNodePosition = useBrainstormStore((s) => s.setPendingNodePosition)
@@ -77,10 +79,20 @@ export function ContextMenu() {
     const node = nodes[nodeId]
     nodeActive = !!node && node.status === 'active'
     if (nodeActive) {
-      // FR-001 carve-out: question nodes only ever offer Delete — no
-      // Expand/Branch, Steer/Lens, Ask Me, or Merge (research.md R3).
       if ((node.kind ?? 'idea') === 'question') {
         items = [
+          ...(node.answerId === undefined
+            ? [
+                {
+                  key: 'answer',
+                  label: 'Answer',
+                  onActivate: () => {
+                    openAnswerInput(nodeId)
+                    closeContextMenu()
+                  },
+                },
+              ]
+            : []),
           {
             key: 'delete',
             label: 'Delete',
@@ -94,9 +106,9 @@ export function ContextMenu() {
       items = [
         {
           key: 'expand',
-          label: 'Expand / Branch',
+          label: 'Expand',
           onActivate: () => {
-            setSteerPrompt({ nodeId, defaultValue: 'brainstorm ideas' })
+            expandNode(nodeId)
             closeContextMenu()
           },
         },

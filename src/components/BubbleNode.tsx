@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useLayoutEffect, memo } from 'react'
 import { motion } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
 import { useBrainstormStore } from '../store'
 import { CloseIcon } from './icons'
 import { DURATION, TRANSITION } from '../lib/motion'
@@ -26,6 +27,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   const toggleNodeSelected = useBrainstormStore((s) => s.toggleNodeSelected)
   const selectedNodeId = useBrainstormStore((s) => s.selectedNodeId)
   const isInMultiSelect = useBrainstormStore((s) => s.selectedNodeIds.includes(id))
+  const isSelected = selectedNodeId === id || isInMultiSelect
   const setConnectionDrag = useBrainstormStore((s) => s.setConnectionDrag)
   const addConnection = useBrainstormStore((s) => s.addConnection)
   const connectionDrag = useBrainstormStore((s) => s.connectionDrag)
@@ -41,8 +43,11 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   const askMeNode = useBrainstormStore((s) => s.askMeNode)
   const answeringQuestionId = useBrainstormStore((s) => s.answeringQuestionId)
   const answerQuestion = useBrainstormStore((s) => s.answerQuestion)
-  const openAnswerInput = useBrainstormStore((s) => s.openAnswerInput)
   const closeAnswerInput = useBrainstormStore((s) => s.closeAnswerInput)
+  const updateNodeText = useBrainstormStore((s) => s.updateNodeText)
+  const beginTextEdit = useBrainstormStore((s) => s.beginTextEdit)
+  const commitTextEdit = useBrainstormStore((s) => s.commitTextEdit)
+  const [isEditingText, setIsEditingText] = useState(false)
   const seedNodeId = useBrainstormStore((s) => s.seedNodeId)
   const isSeed = id === seedNodeId
   const [morphDone, setMorphDone] = useState(false)
@@ -64,8 +69,8 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   const isShiftClick = useRef(false)
   const groupStarts = useRef<Record<string, { x: number; y: number }> | null>(null)
 
-  const textRef = useRef<HTMLSpanElement>(null)
-  const measureRef = useRef<HTMLSpanElement>(null)
+  const textRef = useRef<HTMLDivElement>(null)
+  const measureRef = useRef<HTMLDivElement>(null)
   const [fullH, setFullH] = useState(0)
   const [applyClamp, setApplyClamp] = useState(!expanded)
 
@@ -112,6 +117,16 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
+
+  // Expand: drop the clamp immediately so the full text is actually reachable
+  // (line-clamp caps visible lines regardless of the container's maxHeight).
+  // Adjusted during render, not an effect, per React's guidance for
+  // resetting state synchronously on a prop/state change.
+  const [lastExpanded, setLastExpanded] = useState(expanded)
+  if (expanded !== lastExpanded) {
+    setLastExpanded(expanded)
+    if (expanded) setApplyClamp(false)
+  }
 
   // Collapse: keep the text unclamped while the container shrinks, then
   // re-clamp once the animation is done so the ellipsis doesn't snap in early.
@@ -273,14 +288,21 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
         toggleNodeSelected(id)
         isShiftClick.current = false
         lastClickTime.current = 0
-      } else if ((node.kind ?? 'idea') === 'question' && node.answerId === undefined) {
-        openAnswerInput(id)
-        lastClickTime.current = Date.now()
       } else if (isSecondPress.current) {
         setSteerPrompt({ nodeId: id, defaultValue: 'brainstorm ideas' })
         isSecondPress.current = false
         lastClickTime.current = 0
+      } else if (expanded && isSelected) {
+        // Already reading this node (expanded from an earlier click) —
+        // click again to edit it, right there in the bubble.
+        setIsEditingText(true)
+        lastClickTime.current = Date.now()
       } else {
+        // A plain click on a clamped bubble reveals the full text right
+        // there — no hunting for the small pill. This is a local read
+        // toggle only; it never triggers AI generation (that's Expand in
+        // the context menu, a completely separate action).
+        if (isClamped && !expanded) setExpanded(true)
         selectNode(id)
         lastClickTime.current = Date.now()
       }
@@ -293,7 +315,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
     setMergeTarget(null)
     isSecondPress.current = false
     groupStarts.current = null
-  }, [setSteerPrompt, selectNode, toggleNodeSelected, mergeNodes, addConnection, mergeTarget, id, setMergeTarget, setConnectionDrag, setDraggedNode, connectionDrag, setPendingNodePosition, setPendingConnectionSource, openAnswerInput, node])
+  }, [setSteerPrompt, selectNode, toggleNodeSelected, mergeNodes, addConnection, mergeTarget, id, setMergeTarget, setConnectionDrag, setDraggedNode, connectionDrag, setPendingNodePosition, setPendingConnectionSource, isClamped, expanded, isSelected])
 
   const handleDismiss = useCallback(
     (e: React.MouseEvent) => {
@@ -337,9 +359,22 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
 
   if (!node) return null
 
+  // AI-generated children only — manually drawn connections are already
+  // visible as lines on the canvas, no need to double-count them here.
+  const activeChildCount = node.childIds.filter(
+    (cid) => useBrainstormStore.getState().nodes[cid]?.status === 'active',
+  ).length
+  const parent = node.parentId
+    ? useBrainstormStore.getState().nodes[node.parentId]
+    : null
+  const answerNode = node.answerId
+    ? useBrainstormStore.getState().nodes[node.answerId]
+    : null
+  const isAI = node.origin === 'ai'
+  const kind = node.kind ?? 'idea'
+
   const isExpandLoading = isLoading === id
   const isMergeHighlight = mergeTarget === id
-  const isSelected = selectedNodeId === id || isInMultiSelect
   const isConnectionTarget =
     connectionDrag && connectionDrag.sourceId !== id && isMergeHighlight
   const isBeingDragged = draggedNodeId === id
@@ -352,7 +387,8 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   const y = Math.round(node.position.y)
   const outerStyle: React.CSSProperties = {
     transform: `translate3d(${x}px, ${y}px, 0) translate(-50%, 0)`,
-    width: NODE_WIDTH,
+    width: expanded ? NODE_WIDTH * 2 : NODE_WIDTH,
+    transition: 'width 200ms ease-out',
     zIndex: isBeingDragged ? 10 : 1,
     // Only the dragged bubble gets willChange — applying it everywhere
     // wastes GPU memory and can hurt perf with many nodes.
@@ -423,22 +459,49 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
             maxHeight: expanded ? fullH || 1000 : COLLAPSED_MAX,
           }}
         >
-          <span
-            ref={textRef}
-            className={`text-body leading-[1.4] break-words ${
-              applyClamp ? 'line-clamp-4' : 'block'
-            } ${isMergePlaceholder && !node.text ? 'text-ink/50 italic' : ''}`}
-          >
-            {node.text || (isMergePlaceholder ? 'Merging ideas…' : '')}
-          </span>
+          {expanded && isEditingText ? (
+            <textarea
+              autoFocus
+              value={node.text}
+              onPointerDown={(e) => e.stopPropagation()}
+              onFocus={() => beginTextEdit(id)}
+              onBlur={() => {
+                commitTextEdit()
+                setIsEditingText(false)
+              }}
+              onChange={(e) => updateNodeText(id, e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  ;(e.target as HTMLTextAreaElement).blur()
+                }
+              }}
+              className="w-full text-body leading-[1.4] outline-none resize-none [field-sizing:content]"
+            />
+          ) : (
+            <div
+              ref={textRef}
+              className={`text-body leading-[1.4] break-words ${
+                expanded ? 'prose-compose cursor-text' : applyClamp ? 'line-clamp-4' : 'block'
+              } ${isMergePlaceholder && !node.text ? 'text-ink/50 italic' : ''}`}
+            >
+              {isMergePlaceholder && !node.text ? (
+                'Merging ideas…'
+              ) : expanded ? (
+                <ReactMarkdown>{node.text}</ReactMarkdown>
+              ) : (
+                node.text
+              )}
+            </div>
+          )}
         </div>
-        <span
+        <div
           ref={measureRef}
           aria-hidden
-          className="absolute left-3.75 right-3.75 top-2.75 invisible pointer-events-none text-body leading-[1.4] break-words block"
+          className="prose-compose absolute left-3.75 right-3.75 top-2.75 invisible pointer-events-none text-body leading-[1.4] break-words"
         >
-          {node.text}
-        </span>
+          <ReactMarkdown>{node.text}</ReactMarkdown>
+        </div>
         {!isExpandLoading && !isMergePlaceholder && (
           <button
             onPointerDown={(e) => e.stopPropagation()}
@@ -453,26 +516,84 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
             </span>
           </button>
         )}
-      </motion.div>
-      {(isClamped || expanded) && !isExpandLoading && (
-        <button
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={handleToggleExpand}
-          className={`group/pill absolute left-1/2 -translate-x-1/2 top-full flex items-center justify-center px-4 py-2 transition-opacity ${
-            expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          }`}
-          aria-label={expanded ? 'Collapse' : 'Expand'}
-        >
+        {activeChildCount > 0 && !isMergePlaceholder && (
           <span
-            className={`block h-1 rounded-pill bg-line-neutral group-hover/pill:bg-ink/50 transition-[width,background-color] duration-150 ease-out ${
-              expanded ? 'w-15' : 'w-7.25'
-            }`}
-          />
-        </button>
+            className="absolute -bottom-2 -left-2 min-w-4.5 h-4.5 px-1 rounded-full bg-white border border-line-neutral text-[10px] leading-none flex items-center justify-center text-ink/60"
+            aria-label={`${activeChildCount} children`}
+          >
+            {activeChildCount}
+          </span>
+        )}
+      </motion.div>
+      {!isMergePlaceholder && (
+        <div className="absolute left-1/2 -translate-x-1/2 top-full flex flex-col items-center">
+          {(isClamped || expanded) && !isExpandLoading && (
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={handleToggleExpand}
+              className="group/pill flex items-center justify-center px-4 py-2.5"
+              aria-label={expanded ? 'Collapse' : 'Expand'}
+            >
+              <span
+                className={`block h-1.5 rounded-pill bg-line-neutral/70 group-hover/pill:bg-ink/50 transition-[width,background-color] duration-150 ease-out ${
+                  expanded ? 'w-15' : 'w-9'
+                }`}
+              />
+            </button>
+          )}
+          {isSelected && (
+            <div
+              onPointerDown={(e) => e.stopPropagation()}
+              className="w-[200px] flex flex-col items-center gap-1 text-center text-caption text-ink/60 pb-2"
+            >
+              {kind === 'question' && answerNode && (
+                <button
+                  onClick={() => selectNode(node.answerId!)}
+                  className="hover:text-ink underline underline-offset-2"
+                >
+                  View answer →
+                </button>
+              )}
+              {kind === 'answer' && parent && (
+                <button
+                  onClick={() => selectNode(node.parentId!)}
+                  className="hover:text-ink underline underline-offset-2"
+                >
+                  Answers: {parent.text.slice(0, 40)}
+                  {parent.text.length > 40 ? '…' : ''} →
+                </button>
+              )}
+              {isAI && parent && (
+                <p className="break-words">
+                  Branched from: {parent.text.slice(0, 40)}
+                  {parent.text.length > 40 ? '…' : ''}
+                </p>
+              )}
+              {isAI && (
+                <p className="break-words">Prompt: {node.steer ?? 'brainstorm ideas'}</p>
+              )}
+              {isAI && parent && (
+                <button
+                  onClick={() => {
+                    selectNode(parent.id)
+                    setSteerPrompt({
+                      nodeId: parent.id,
+                      defaultValue: node.steer ?? 'brainstorm ideas',
+                    })
+                  }}
+                  className="hover:text-ink underline underline-offset-2"
+                >
+                  Re-branch with different lens
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
       {steerPrompt?.nodeId === id && (
         <SteerInput
           defaultValue={steerPrompt.defaultValue}
+          placeholder="branch on..."
           onSubmit={(value) => expandNode(id, value)}
           onCancel={() => setSteerPrompt(null)}
         />
@@ -480,6 +601,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
       {askMePrompt?.nodeId === id && (
         <SteerInput
           defaultValue={askMePrompt.defaultValue}
+          placeholder="ask about..."
           onSubmit={(value) => askMeNode(id, value)}
           onCancel={() => setAskMePrompt(null)}
         />
@@ -496,10 +618,12 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
 
 function SteerInput({
   defaultValue,
+  placeholder,
   onSubmit,
   onCancel,
 }: {
   defaultValue: string
+  placeholder: string
   onSubmit: (value: string) => void
   onCancel: () => void
 }) {
@@ -521,7 +645,7 @@ function SteerInput({
         }
       }}
       onBlur={onCancel}
-      placeholder="branch on..."
+      placeholder={placeholder}
       className="mt-2.5 w-full px-3 py-2 text-body rounded-control outline-none bg-white text-ink placeholder:text-ink/40"
     />
   )

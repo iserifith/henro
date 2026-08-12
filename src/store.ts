@@ -7,6 +7,8 @@ import {
   mergeIdeas,
   compose as composeAI,
   generateProjectName,
+  ASK_ME_MODEL,
+  ASK_ME_REASONING_EFFORT,
   type ContextNode,
 } from './lib/ai'
 import { CONTEXT_MAX_DEPTH, CONTEXT_MAX_NODES } from './lib/prompts'
@@ -19,6 +21,13 @@ import {
   deleteProjectStorage,
   type ProjectMeta,
 } from './lib/persistence'
+
+function notifyBusy() {
+  useToastStore.getState().push({
+    kind: 'info',
+    message: 'Still working on the last request — hang tight.',
+  })
+}
 
 function toastError(err: unknown) {
   // 'auth' / 'no-key' toasts mention "Settings" — surface it as an inline
@@ -106,6 +115,7 @@ interface BrainstormStore {
   nodes: Record<string, NodeData>
   viewport: { x: number; y: number; zoom: number }
   isLoading: string | null
+  namingProjectId: string | null
   mergeTarget: string | null
   composeResult: string | null
   composeOpen: boolean
@@ -293,6 +303,7 @@ function freshEphemeralState() {
     askMePrompt: null,
     answeringQuestionId: null,
     isLoading: null,
+    namingProjectId: null,
   }
 }
 
@@ -302,6 +313,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
   nodes: {},
   viewport: { x: 0, y: 0, zoom: 1 },
   isLoading: null,
+  namingProjectId: null,
   mergeTarget: null,
   composeResult: null,
   composeOpen: false,
@@ -682,6 +694,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
     const current = projectsIndex.find((p) => p.id === currentProjectId)
     if (!current || current.name !== 'Untitled') return
 
+    set({ namingProjectId: currentProjectId })
     generateProjectName(text)
       .then((name) => {
         if (!name) return
@@ -693,12 +706,21 @@ export const useBrainstormStore = create<BrainstormStore>()(
       .catch((err) => {
         console.warn('project auto-name failed:', err)
       })
+      .finally(() => {
+        if (get().namingProjectId === currentProjectId) {
+          set({ namingProjectId: null })
+        }
+      })
   },
 
   expandNode: async (id, steer) => {
     const state = get()
     const node = state.nodes[id]
-    if (!node || state.isLoading) return
+    if (!node) return
+    if (state.isLoading) {
+      notifyBusy()
+      return
+    }
     const preSnap = snapshot(state)
 
     set({ isLoading: id, steerPrompt: null })
@@ -763,7 +785,11 @@ export const useBrainstormStore = create<BrainstormStore>()(
   askMeNode: async (id, steer) => {
     const state = get()
     const node = state.nodes[id]
-    if (!node || state.isLoading) return
+    if (!node) return
+    if (state.isLoading) {
+      notifyBusy()
+      return
+    }
     const preSnap = snapshot(state)
 
     set({ isLoading: id, askMePrompt: null })
@@ -776,6 +802,7 @@ export const useBrainstormStore = create<BrainstormStore>()(
         context.wider,
         steer,
         node.steer,
+        { model: ASK_ME_MODEL, reasoningEffort: ASK_ME_REASONING_EFFORT },
       )
 
       const grandparent = node.parentId ? state.nodes[node.parentId] : null
@@ -906,7 +933,11 @@ export const useBrainstormStore = create<BrainstormStore>()(
     const state = get()
     const node1 = state.nodes[id1]
     const node2 = state.nodes[id2]
-    if (!node1 || !node2 || state.isLoading) return
+    if (!node1 || !node2) return
+    if (state.isLoading) {
+      notifyBusy()
+      return
+    }
     // FR-020: question nodes can never be merged (defense-in-depth behind the
     // UI-level checks in ContextMenu and findMergeCandidate).
     if ((node1.kind ?? 'idea') === 'question' || (node2.kind ?? 'idea') === 'question') return
@@ -1050,7 +1081,10 @@ export const useBrainstormStore = create<BrainstormStore>()(
 
   compose: async () => {
     const state = get()
-    if (state.isLoading) return
+    if (state.isLoading) {
+      notifyBusy()
+      return
+    }
 
     const activeTexts = Object.values(state.nodes)
       .filter((n) => n.status === 'active' && (n.kind ?? 'idea') !== 'question')

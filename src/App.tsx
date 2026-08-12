@@ -11,7 +11,6 @@ import { SeedInput } from './components/SeedInput'
 import { NodeInput } from './components/NodeInput'
 import { ComposeButton } from './components/ComposeButton'
 import { Settings } from './components/Settings'
-import { SidePanel } from './components/SidePanel'
 import { ContextMenu } from './components/ContextMenu'
 import { SelectionCount } from './components/SelectionCount'
 import { Toaster } from './components/Toaster'
@@ -104,7 +103,6 @@ function App() {
               <>
                 <NodeInput />
                 <ComposeButton />
-                <SidePanel />
                 <SelectionCount />
               </>
             )}

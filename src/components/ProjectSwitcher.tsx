@@ -11,6 +11,7 @@ export function ProjectSwitcher() {
   const rootRef = useRef<HTMLDivElement>(null)
 
   const currentId = useBrainstormStore((s) => s.currentProjectId)
+  const namingProjectId = useBrainstormStore((s) => s.namingProjectId)
   const projects = useBrainstormStore((s) => s.projectsIndex)
   const newProject = useBrainstormStore((s) => s.newProject)
   const renameProject = useBrainstormStore((s) => s.renameProject)
@@ -19,6 +20,7 @@ export function ProjectSwitcher() {
 
   const current = projects.find((p) => p.id === currentId)
   const others = projects.filter((p) => p.id !== currentId)
+  const naming = !!currentId && namingProjectId === currentId
 
   useEffect(() => {
     if (!open) return
@@ -74,7 +76,8 @@ export function ProjectSwitcher() {
           open
             ? 'bg-ink text-white'
             : 'bg-white text-ink hover:bg-chip'
-        }`}
+        } ${naming ? 'animate-pulse' : ''}`}
+        title={naming ? 'Naming project…' : undefined}
       >
         {current?.name ?? 'Untitled'}
       </button>
@@ -108,8 +111,10 @@ export function ProjectSwitcher() {
             ) : (
               <button
                 onClick={startRename}
-                className="mt-0.5 text-ui text-ink w-full text-left hover:underline underline-offset-2"
-                title="Click to rename"
+                className={`mt-0.5 text-ui text-ink w-full text-left hover:underline underline-offset-2 ${
+                  naming ? 'animate-pulse' : ''
+                }`}
+                title={naming ? 'Naming project…' : 'Click to rename'}
               >
                 {current?.name ?? 'Untitled'}
               </button>

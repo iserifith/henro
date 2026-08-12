@@ -32,11 +32,6 @@ export function Settings() {
   )
   const baseUrlValid = isValidBaseUrl(baseUrl.trim())
 
-  function saveConfig() {
-    writeConfig({ apiKey, baseUrl, model, branchCount, systemPrompt })
-    setShowAI(false)
-  }
-
   function adjustBranch(delta: number) {
     const next = Math.min(10, Math.max(1, branchCount + delta))
     if (next === branchCount) return
@@ -45,19 +40,20 @@ export function Settings() {
   }
 
   function loadPreset(key: PresetKey) {
-    setSystemPrompt(SYSTEM_PROMPT_PRESETS[key])
+    const prompt = SYSTEM_PROMPT_PRESETS[key]
+    setSystemPrompt(prompt)
+    writeConfig({ systemPrompt: prompt })
   }
 
-  const hasSelection = useBrainstormStore((s) => s.selectedNodeId !== null)
-  // Delay un-hiding so the panel close animation finishes first; the hide
-  // itself is applied synchronously during render below.
-  const [delayedShow, setDelayedShow] = useState(!hasSelection)
-  useEffect(() => {
-    if (hasSelection) return
-    const t = setTimeout(() => setDelayedShow(true), 140)
-    return () => clearTimeout(t)
-  }, [hasSelection])
-  const hidden = hasSelection || !delayedShow
+  function commitBaseUrl() {
+    // Only persist when the current value is a valid http(s) URL — an
+    // in-progress/invalid edit is left in local state (with the warning
+    // shown below) without clobbering the last-known-good stored value.
+    const trimmed = baseUrl.trim()
+    if (trimmed && isValidBaseUrl(trimmed)) {
+      writeConfig({ baseUrl: trimmed })
+    }
+  }
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -73,14 +69,11 @@ export function Settings() {
   }, [showAI, setShowAI])
 
   return (
-    <AnimatePresence>
-      {!hidden && (
         <motion.div
           key="settings-root"
           ref={rootRef}
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
           transition={TRANSITION.snappy}
           className="fixed top-4 right-4 z-40 flex flex-col gap-2 items-end"
         >
@@ -147,6 +140,7 @@ export function Settings() {
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
+            onBlur={() => writeConfig({ apiKey })}
             placeholder="API key"
             autoComplete="off"
             data-bwignore="true"
@@ -161,6 +155,7 @@ export function Settings() {
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
+            onBlur={commitBaseUrl}
             placeholder={OPENROUTER_URL}
             autoComplete="off"
             spellCheck={false}
@@ -178,6 +173,7 @@ export function Settings() {
             type="text"
             value={model}
             onChange={(e) => setModel(e.target.value)}
+            onBlur={() => writeConfig({ model })}
             placeholder="anthropic/claude-sonnet-4.5"
             className="text-ui bg-surface-soft rounded-lg px-3 py-2 w-full outline-none text-ink placeholder:text-ink/40"
           />
@@ -197,21 +193,20 @@ export function Settings() {
           <textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
+            onBlur={() => writeConfig({ systemPrompt })}
             rows={8}
             className="text-body bg-surface-soft rounded-lg px-3 py-2 w-full outline-none resize-none text-ink leading-[1.5]"
           />
 
           <button
-            onClick={saveConfig}
+            onClick={() => setShowAI(false)}
             className="text-ui font-medium bg-ink text-white rounded-lg px-4 py-2 self-end hover:opacity-90 mt-1 transition-opacity"
           >
-            Save
+            Done
           </button>
           </motion.div>
         )}
       </AnimatePresence>
         </motion.div>
-      )}
-    </AnimatePresence>
   )
 }
