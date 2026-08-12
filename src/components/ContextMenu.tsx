@@ -19,6 +19,8 @@ export function ContextMenu() {
   const setSteerPrompt = useBrainstormStore((s) => s.setSteerPrompt)
   const setAskMePrompt = useBrainstormStore((s) => s.setAskMePrompt)
   const openAnswerInput = useBrainstormStore((s) => s.openAnswerInput)
+  const setEditingNode = useBrainstormStore((s) => s.setEditingNode)
+  const toggleNodeInfo = useBrainstormStore((s) => s.toggleNodeInfo)
   const dismissNode = useBrainstormStore((s) => s.dismissNode)
   const mergeNodes = useBrainstormStore((s) => s.mergeNodes)
   const setPendingNodePosition = useBrainstormStore((s) => s.setPendingNodePosition)
@@ -79,31 +81,20 @@ export function ContextMenu() {
     const node = nodes[nodeId]
     nodeActive = !!node && node.status === 'active'
     if (nodeActive) {
-      if ((node.kind ?? 'idea') === 'question') {
-        items = [
-          ...(node.answerId === undefined
-            ? [
-                {
-                  key: 'answer',
-                  label: 'Answer',
-                  onActivate: () => {
-                    openAnswerInput(nodeId)
-                    closeContextMenu()
-                  },
-                },
-              ]
-            : []),
-          {
-            key: 'delete',
-            label: 'Delete',
-            onActivate: () => {
-              dismissNode(nodeId)
-              closeContextMenu()
-            },
-          },
-        ]
-      } else {
+      const isQuestion = (node.kind ?? 'idea') === 'question'
       items = [
+        ...(isQuestion && node.answerId === undefined
+          ? [
+              {
+                key: 'answer',
+                label: 'Answer',
+                onActivate: () => {
+                  openAnswerInput(nodeId)
+                  closeContextMenu()
+                },
+              },
+            ]
+          : []),
         {
           key: 'expand',
           label: 'Expand',
@@ -129,6 +120,22 @@ export function ContextMenu() {
           },
         },
         {
+          key: 'edit',
+          label: 'Edit',
+          onActivate: () => {
+            setEditingNode(nodeId)
+            closeContextMenu()
+          },
+        },
+        {
+          key: 'info',
+          label: 'Info',
+          onActivate: () => {
+            toggleNodeInfo(nodeId)
+            closeContextMenu()
+          },
+        },
+        {
           key: 'delete',
           label: 'Delete',
           onActivate: () => {
@@ -137,16 +144,13 @@ export function ContextMenu() {
           },
         },
       ]
-      if (selectedNodeIds.length === 2 && selectedNodeIds.includes(nodeId)) {
+      if (!isQuestion && selectedNodeIds.length === 2 && selectedNodeIds.includes(nodeId)) {
         const otherId = selectedNodeIds.find((id) => id !== nodeId)!
         // FR-020: never offer Merge when either selected node is a question
-        // (the nodeId check is redundant with the kind-aware branch above,
+        // (the nodeId check is redundant with the isQuestion check above,
         // but this is the only place that also checks the other node).
-        if (
-          (nodes[nodeId].kind ?? 'idea') !== 'question' &&
-          (nodes[otherId].kind ?? 'idea') !== 'question'
-        ) {
-          items.splice(3, 0, {
+        if ((nodes[otherId].kind ?? 'idea') !== 'question') {
+          items.splice(items.length - 1, 0, {
             key: 'merge',
             label: 'Merge',
             onActivate: () => {
@@ -155,7 +159,6 @@ export function ContextMenu() {
             },
           })
         }
-      }
       }
     }
   } else if (contextMenu?.kind === 'canvas') {

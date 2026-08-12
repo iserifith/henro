@@ -134,6 +134,8 @@ interface BrainstormStore {
   seedNodeId: string | null
   mergeAnim: MergeAnim | null
   contextMenu: ContextMenuState
+  editingNodeId: string | null
+  infoNodeId: string | null
   currentProjectId: string | null
   projectsIndex: ProjectMeta[]
   past: HistoryFrame[]
@@ -185,6 +187,8 @@ interface BrainstormStore {
   openNodeContextMenu: (nodeId: string, x: number, y: number) => void
   openCanvasContextMenu: (canvasPos: Position, x: number, y: number) => void
   closeContextMenu: () => void
+  setEditingNode: (id: string | null) => void
+  toggleNodeInfo: (id: string) => void
   pan: (dx: number, dy: number) => void
   zoom: (delta: number, center: Position) => void
 }
@@ -304,6 +308,8 @@ function freshEphemeralState() {
     answeringQuestionId: null,
     isLoading: null,
     namingProjectId: null,
+    editingNodeId: null,
+    infoNodeId: null,
   }
 }
 
@@ -332,6 +338,8 @@ export const useBrainstormStore = create<BrainstormStore>()(
   seedNodeId: null,
   mergeAnim: null,
   contextMenu: null,
+  editingNodeId: null,
+  infoNodeId: null,
   currentProjectId: null,
   projectsIndex: [],
   past: [],
@@ -1113,6 +1121,9 @@ export const useBrainstormStore = create<BrainstormStore>()(
   openCanvasContextMenu: (canvasPos, x, y) =>
     set({ contextMenu: { kind: 'canvas', canvasPos, x, y } }),
   closeContextMenu: () => set({ contextMenu: null }),
+  setEditingNode: (id) => set({ editingNodeId: id }),
+  toggleNodeInfo: (id) =>
+    set((s) => ({ infoNodeId: s.infoNodeId === id ? null : id })),
 
   pan: (dx, dy) => {
     set((s) => ({

@@ -47,7 +47,11 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   const updateNodeText = useBrainstormStore((s) => s.updateNodeText)
   const beginTextEdit = useBrainstormStore((s) => s.beginTextEdit)
   const commitTextEdit = useBrainstormStore((s) => s.commitTextEdit)
-  const [isEditingText, setIsEditingText] = useState(false)
+  const editingNodeId = useBrainstormStore((s) => s.editingNodeId)
+  const setEditingNode = useBrainstormStore((s) => s.setEditingNode)
+  const isEditingText = editingNodeId === id
+  const infoNodeId = useBrainstormStore((s) => s.infoNodeId)
+  const showInfo = infoNodeId === id
   const seedNodeId = useBrainstormStore((s) => s.seedNodeId)
   const isSeed = id === seedNodeId
   const [morphDone, setMorphDone] = useState(false)
@@ -126,6 +130,17 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
   if (expanded !== lastExpanded) {
     setLastExpanded(expanded)
     if (expanded) setApplyClamp(false)
+  }
+
+  // Entering edit mode (triggered from the context menu, not necessarily
+  // preceded by a click-to-expand) always needs the full, unclamped bubble.
+  const [lastEditing, setLastEditing] = useState(isEditingText)
+  if (isEditingText !== lastEditing) {
+    setLastEditing(isEditingText)
+    if (isEditingText && !expanded) {
+      setExpanded(true)
+      setApplyClamp(false)
+    }
   }
 
   // Collapse: keep the text unclamped while the container shrinks, then
@@ -292,16 +307,12 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
         setSteerPrompt({ nodeId: id, defaultValue: 'brainstorm ideas' })
         isSecondPress.current = false
         lastClickTime.current = 0
-      } else if (expanded && isSelected) {
-        // Already reading this node (expanded from an earlier click) —
-        // click again to edit it, right there in the bubble.
-        setIsEditingText(true)
-        lastClickTime.current = Date.now()
       } else {
         // A plain click on a clamped bubble reveals the full text right
         // there — no hunting for the small pill. This is a local read
         // toggle only; it never triggers AI generation (that's Expand in
-        // the context menu, a completely separate action).
+        // the context menu, a completely separate action). Editing is a
+        // separate, explicit action from the context menu now too.
         if (isClamped && !expanded) setExpanded(true)
         selectNode(id)
         lastClickTime.current = Date.now()
@@ -315,7 +326,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
     setMergeTarget(null)
     isSecondPress.current = false
     groupStarts.current = null
-  }, [setSteerPrompt, selectNode, toggleNodeSelected, mergeNodes, addConnection, mergeTarget, id, setMergeTarget, setConnectionDrag, setDraggedNode, connectionDrag, setPendingNodePosition, setPendingConnectionSource, isClamped, expanded, isSelected])
+  }, [setSteerPrompt, selectNode, toggleNodeSelected, mergeNodes, addConnection, mergeTarget, id, setMergeTarget, setConnectionDrag, setDraggedNode, connectionDrag, setPendingNodePosition, setPendingConnectionSource, isClamped, expanded])
 
   const handleDismiss = useCallback(
     (e: React.MouseEvent) => {
@@ -467,7 +478,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
               onFocus={() => beginTextEdit(id)}
               onBlur={() => {
                 commitTextEdit()
-                setIsEditingText(false)
+                setEditingNode(null)
               }}
               onChange={(e) => updateNodeText(id, e.target.value)}
               onKeyDown={(e) => {
@@ -481,16 +492,14 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
           ) : (
             <div
               ref={textRef}
-              className={`text-body leading-[1.4] break-words ${
-                expanded ? 'prose-compose cursor-text' : applyClamp ? 'line-clamp-4' : 'block'
+              className={`text-body leading-[1.4] break-words prose-compose ${
+                expanded ? 'cursor-text' : applyClamp ? 'line-clamp-4' : 'block'
               } ${isMergePlaceholder && !node.text ? 'text-ink/50 italic' : ''}`}
             >
               {isMergePlaceholder && !node.text ? (
                 'Merging ideas…'
-              ) : expanded ? (
-                <ReactMarkdown>{node.text}</ReactMarkdown>
               ) : (
-                node.text
+                <ReactMarkdown>{node.text}</ReactMarkdown>
               )}
             </div>
           )}
@@ -541,7 +550,7 @@ export const BubbleNode = memo(function BubbleNode({ id }: { id: string }) {
               />
             </button>
           )}
-          {isSelected && (
+          {showInfo && (
             <div
               onPointerDown={(e) => e.stopPropagation()}
               className="w-[200px] flex flex-col items-center gap-1 text-center text-caption text-ink/60 pb-2"

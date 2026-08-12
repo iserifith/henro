@@ -195,7 +195,7 @@ export async function generateBranches(
       ? `\n\nWider context (background — do not repeat, do not branch from these):\n${widerContext.map(formatNode).join('\n')}`
       : ''
 
-  const system = `${systemPrompt}\n\nReturn ONLY a JSON array of ${branchCount} strings — no code fences, no explanation outside the array. Each string's content may use markdown (headers, bold, lists) where it aids clarity.`
+  const system = `${systemPrompt}\n\nReturn ONLY a JSON array of ${branchCount} strings — no code fences, no explanation outside the array. Format each string for scannability, not as a dense paragraph: use markdown headers or bold lead-ins for key terms, line breaks between distinct points, and bullet or numbered lists where the content is enumerable.`
   const user = `${targetLine}${askStr}${directStr}${widerStr}\n\nReturn ${branchCount} items as a JSON array of strings. Each item must advance the target's substance — addressing the ask, following where it points, or exploring what it implies. Treat every listed context item (direct and wider) as already-taken ground: no restating, renaming, or re-skinning their analogies, mechanisms, or names. When generating multiple, each must take a different angle from the others. Match the register of the surrounding content; the target sets the substance.`
 
   const raw = await chat(
@@ -347,7 +347,7 @@ export async function compose(
       {
         role: 'system',
         content:
-          'You synthesize multiple brainstorm ideas into a coherent summary. Be concise but comprehensive.',
+          'You synthesize multiple brainstorm ideas into a coherent summary. Be concise but comprehensive. Structure the summary for scannability: markdown headers to separate sections, bold lead-ins for key terms, and bullet or numbered lists where content is enumerable — not one dense paragraph.',
       },
       {
         role: 'user',
